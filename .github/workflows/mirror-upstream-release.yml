@@ -8,6 +8,7 @@ name: Mirror upstream v* release
 #   2. Create the same tag name on this fork (points at our packaged tree)
 #   3. workflow_dispatch Debian + RPM builds
 #      (GITHUB_TOKEN tag pushes do not trigger on.push workflows)
+#   4. Those builds publish packages onto a GitHub Release for the tag
 
 run-name: Mirror upstream release · ${{ github.ref_name }}
 

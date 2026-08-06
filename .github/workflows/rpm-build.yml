@@ -18,7 +18,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-rpm:
@@ -140,3 +140,11 @@ jobs:
         with:
           name: libsherpa-onnx-c-api-rpms
           path: artifacts/*
+
+      - name: Attach .rpms to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
