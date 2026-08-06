@@ -1,3 +1,18 @@
+> **Fork notice:** this is [roojs/sherpa-onnx](https://github.com/roojs/sherpa-onnx),
+> a packaging fork of [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx).
+> It exists to publish **Debian (`.deb`)** and **RPM (`.rpm`)** packages for the
+> **C API** (runtime + `-dev` / `-devel`).
+>
+> Packages are **ASR / C-API trimmed** compared with a full upstream build:
+> TTS, speaker diarization, websocket, PortAudio, Python, CLI binaries,
+> examples, tests, GPU/JNI/NPU, and similar extras are **not** enabled in the
+> packaged build. See `debian/` and `rpm/` for what actually ships.
+>
+> For upstream docs, models, and the full feature matrix below, prefer the
+> [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) repository.
+
+---
+
 <div align="center">
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/k2-fsa/sherpa-onnx)

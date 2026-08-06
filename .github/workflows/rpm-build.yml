@@ -30,6 +30,10 @@ jobs:
     env:
       RPM_VERSION: '1.13.4'
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Install git and ca-certificates
         run: |

@@ -34,6 +34,10 @@ jobs:
       DEBFULLNAME: GitHub Actions
       DEBEMAIL: actions@users.noreply.github.com
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Install git and ca-certificates
         run: |
