@@ -20,6 +20,12 @@ on:
 permissions:
   contents: write
 
+# One active build per ref (tag or branch). A later push/dispatch on the
+# same tag waits (does not cancel the run that is already building).
+concurrency:
+  group: rpm-packages-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-rpm:
     name: Build amd64 RPMs
