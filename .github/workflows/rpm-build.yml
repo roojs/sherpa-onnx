@@ -83,15 +83,27 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
-          ver="${GITHUB_REF_NAME#v}"
+          # v1.13.4 → Version 1.13.4 / Release 1
+          # v1.13.4-roojs1 → Version 1.13.4 / Release roojs1  (RPM forbids '-' in Version)
+          tag="${GITHUB_REF_NAME#v}"
+          if [[ "${tag}" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-([A-Za-z0-9.~+]+))?$ ]]; then
+            ver="${BASH_REMATCH[1]}"
+            rel="${BASH_REMATCH[3]:-1}"
+          else
+            ver="${tag}"
+            rel="1"
+          fi
           echo "RPM_VERSION=${ver}" >> "$GITHUB_ENV"
+          echo "RPM_RELEASE=${rel}" >> "$GITHUB_ENV"
           sed -i "s/^Version:[[:space:]]*.*/Version:        ${ver}/" rpm/sherpa-onnx.spec
-          grep '^Version:' rpm/sherpa-onnx.spec
+          sed -i "s/^Release:[[:space:]]*.*/Release:        ${rel}%{?dist}/" rpm/sherpa-onnx.spec
+          grep -E '^(Version|Release):' rpm/sherpa-onnx.spec
 
       - name: Build RPMs
         run: |
           set -euo pipefail
           ver="${RPM_VERSION}"
+          rel="${RPM_RELEASE:-1}"
           topdir="${PWD}/rpmbuild"
           mkdir -p "${topdir}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
@@ -108,8 +120,9 @@ jobs:
             .
 
           cp rpm/sherpa-onnx.spec "${topdir}/SPECS/"
-          # Keep Version: in the copied spec aligned with the tarball name.
           sed -i "s/^Version:[[:space:]]*.*/Version:        ${ver}/" \
+            "${topdir}/SPECS/sherpa-onnx.spec"
+          sed -i "s/^Release:[[:space:]]*.*/Release:        ${rel}%{?dist}/" \
             "${topdir}/SPECS/sherpa-onnx.spec"
 
           rpmbuild -bb \
