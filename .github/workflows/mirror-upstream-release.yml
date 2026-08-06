@@ -65,8 +65,11 @@ jobs:
           echo "Latest upstream semver tag: ${latest}"
           echo "tag=${latest}" >> "$GITHUB_OUTPUT"
 
-          if git ls-remote --tags origin "refs/tags/${latest}" | grep -q .; then
-            echo "Tag ${latest} already on origin — nothing to do"
+          # Exact vX.Y.Z, or a packaging rebuild like vX.Y.Z-roojs1, means we
+          # already handled this upstream release — exit green (no-op).
+          if git ls-remote --tags origin "refs/tags/${latest}" | grep -q . \
+            || git ls-remote --tags origin "refs/tags/${latest}-*" | grep -q .; then
+            echo "Tag ${latest} (or ${latest}-*) already on origin — nothing to do"
             echo "new=false" >> "$GITHUB_OUTPUT"
           else
             echo "Tag ${latest} is new for this fork"
@@ -88,8 +91,10 @@ jobs:
           git pull --ff-only origin master
 
           # Fetch release commit under a side ref so we do not clobber local tags.
-          git fetch upstream "refs/tags/${TAG}:refs/tags/upstream-${TAG}" \
-            upstream/master:refs/remotes/upstream/master
+          # Remote branch is "master", not "upstream/master".
+          git fetch upstream \
+            "refs/tags/${TAG}:refs/tags/upstream-${TAG}" \
+            master:refs/remotes/upstream/master
 
           if ! git merge-base --is-ancestor "upstream-${TAG}" HEAD; then
             git merge "upstream-${TAG}" --no-edit \
