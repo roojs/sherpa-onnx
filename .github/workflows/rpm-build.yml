@@ -1,0 +1,129 @@
+name: RPM packages
+
+# Build libsherpa-onnx-c-api + -devel on Fedora (system onnxruntime-devel).
+# Reuses debian/vendor-fetch.sh + debian/cmake overlays; rpmbuild is offline
+# for those trees.
+
+run-name: RPM packages · ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      refresh_cache:
+        description: Rebuild debian/vendor download cache from scratch
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-rpm:
+    name: Build amd64 RPMs
+    runs-on: ubuntu-24.04
+    container:
+      image: fedora:44
+
+    env:
+      RPM_VERSION: '1.13.4'
+
+    steps:
+      - name: Install git and ca-certificates
+        run: |
+          set -euo pipefail
+          dnf -y install ca-certificates git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore vendor cache
+        id: restore-vendor
+        uses: actions/cache/restore@v4
+        with:
+          path: debian/vendor
+          key: vendor-v1-${{ inputs.refresh_cache && github.run_id || 'stable' }}-${{ hashFiles('debian/vendor-fetch.sh') }}
+          restore-keys: |
+            vendor-v1-stable-
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          dnf -y install \
+            rpm-build \
+            rpmdevtools \
+            cmake \
+            ninja-build \
+            gcc-c++ \
+            pkgconf-pkg-config \
+            curl \
+            unzip \
+            ca-certificates \
+            onnxruntime-devel \
+            json-devel
+
+      - name: Fetch vendor trees
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.refresh_cache }}" = "true" ]; then
+            rm -rf debian/vendor
+          fi
+          ./debian/vendor-fetch.sh
+
+      - name: Save vendor cache
+        if: always() && steps.restore-vendor.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: debian/vendor
+          key: vendor-v1-stable-${{ hashFiles('debian/vendor-fetch.sh') }}
+
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          echo "RPM_VERSION=${ver}" >> "$GITHUB_ENV"
+          sed -i "s/^Version:[[:space:]]*.*/Version:        ${ver}/" rpm/sherpa-onnx.spec
+          grep '^Version:' rpm/sherpa-onnx.spec
+
+      - name: Build RPMs
+        run: |
+          set -euo pipefail
+          ver="${RPM_VERSION}"
+          topdir="${PWD}/rpmbuild"
+          mkdir -p "${topdir}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+          tar \
+            --exclude=.git \
+            --exclude=build \
+            --exclude=rpmbuild \
+            --exclude=artifacts \
+            --exclude='*.deb' \
+            --exclude='*.rpm' \
+            --exclude='*.ddeb' \
+            -czf "${topdir}/SOURCES/sherpa-onnx-${ver}.tar.gz" \
+            --transform "s,^,sherpa-onnx-${ver}/," \
+            .
+
+          cp rpm/sherpa-onnx.spec "${topdir}/SPECS/"
+          # Keep Version: in the copied spec aligned with the tarball name.
+          sed -i "s/^Version:[[:space:]]*.*/Version:        ${ver}/" \
+            "${topdir}/SPECS/sherpa-onnx.spec"
+
+          rpmbuild -bb \
+            --define "_topdir ${topdir}" \
+            --define "_smp_ncpus_max 2" \
+            "${topdir}/SPECS/sherpa-onnx.spec"
+
+          mkdir -p artifacts
+          find "${topdir}/RPMS" -type f -name '*.rpm' ! -name '*.src.rpm' \
+            -exec cp -t artifacts {} +
+          ls -lh artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libsherpa-onnx-c-api-rpms
+          path: artifacts/*
