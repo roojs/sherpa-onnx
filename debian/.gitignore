@@ -1,0 +1,9 @@
+# Debhelper / dpkg-buildpackage outputs (keep control files tracked)
+/.debhelper/
+/tmp/
+/files
+/debhelper-build-stamp
+/*.debhelper.log
+/*.substvars
+/libsherpa-onnx-c-api1/
+/libsherpa-onnx-c-api-dev/

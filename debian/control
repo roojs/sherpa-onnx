@@ -1,0 +1,39 @@
+Source: sherpa-onnx
+Section: libs
+Priority: optional
+Maintainer: Alan Knowles <alan@roojs.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               ninja-build,
+               pkg-config,
+               ca-certificates,
+               curl,
+               libonnxruntime-dev,
+               nlohmann-json3-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/roojs/sherpa-onnx
+Vcs-Browser: https://github.com/roojs/sherpa-onnx
+Vcs-Git: https://github.com/roojs/sherpa-onnx.git
+Rules-Requires-Root: no
+
+Package: libsherpa-onnx-c-api1
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+Description: sherpa-onnx C API shared library
+ sherpa-onnx provides speech recognition and related APIs on top of
+ ONNX Runtime.
+ .
+ This package contains the shared C (and C++) API libraries.
+
+Package: libsherpa-onnx-c-api-dev
+Section: libdevel
+Architecture: any
+Depends: libsherpa-onnx-c-api1 (= ${binary:Version}),
+         libonnxruntime-dev,
+         ${misc:Depends}
+Description: Development files for sherpa-onnx C API
+ sherpa-onnx provides speech recognition and related APIs on top of
+ ONNX Runtime.
+ .
+ This package contains headers and pkg-config metadata for the C API.

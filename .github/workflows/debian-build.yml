@@ -1,0 +1,115 @@
+name: Debian packages
+
+# Build libsherpa-onnx-c-api1 + -dev on Ubuntu 25.04 (onnxruntime is not
+# in Ubuntu 24.04). Fetch vendored cmake deps first, then dpkg-buildpackage
+# offline for those trees.
+
+run-name: Debian packages · ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      refresh_cache:
+        description: Rebuild debian/vendor download cache from scratch
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-debian:
+    name: Build amd64 .debs
+    runs-on: ubuntu-24.04
+    # Noble has no libonnxruntime-dev; Plucky/25.04 does (matches local PoC).
+    container:
+      image: ubuntu:25.04
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      DEB_BUILD_OPTIONS: parallel=2
+      DEBFULLNAME: GitHub Actions
+      DEBEMAIL: actions@users.noreply.github.com
+
+    steps:
+      - name: Install git and ca-certificates
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore vendor cache
+        id: restore-vendor
+        uses: actions/cache/restore@v4
+        with:
+          path: debian/vendor
+          key: vendor-v1-${{ inputs.refresh_cache && github.run_id || 'stable' }}-${{ hashFiles('debian/vendor-fetch.sh') }}
+          restore-keys: |
+            vendor-v1-stable-
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            debhelper \
+            devscripts \
+            fakeroot \
+            curl \
+            unzip \
+            ca-certificates \
+            libonnxruntime-dev \
+            nlohmann-json3-dev
+
+      - name: Fetch vendor trees
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.refresh_cache }}" = "true" ]; then
+            rm -rf debian/vendor
+          fi
+          ./debian/vendor-fetch.sh
+
+      - name: Save vendor cache
+        if: always() && steps.restore-vendor.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: debian/vendor
+          key: vendor-v1-stable-${{ hashFiles('debian/vendor-fetch.sh') }}
+
+      - name: Sync changelog from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          if head -1 debian/changelog | grep -q "^sherpa-onnx ("; then
+            sed -i "1s/^sherpa-onnx ([^)]*)/sherpa-onnx (${ver}-1)/" debian/changelog
+          fi
+          head -1 debian/changelog
+
+      - name: Build .debs
+        run: |
+          set -euo pipefail
+          dpkg-buildpackage -us -uc -b
+          mkdir -p artifacts
+          cp ../libsherpa-onnx-c-api1_*.deb \
+             ../libsherpa-onnx-c-api-dev_*.deb \
+             artifacts/
+          # optional dbgsym
+          cp ../libsherpa-onnx-c-api1-dbgsym_*.ddeb artifacts/ 2>/dev/null || true
+          ls -lh artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libsherpa-onnx-c-api-debs
+          path: artifacts/*

@@ -1,0 +1,5 @@
+sherpa-onnx (1.13.4-1) unstable; urgency=medium
+
+  * Initial Debian packaging of the C API shared libraries.
+
+ -- Alan Knowles <alan@roojs.com>  Thu, 06 Aug 2026 12:21:32 +0800

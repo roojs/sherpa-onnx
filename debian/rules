@@ -1,0 +1,74 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# Prepend debian/cmake so include(kaldi-native-fbank) etc. use vendor
+# overlays (no FetchContent). Keep FetchContent fully disconnected.
+CMAKE_OPTIONS = \
+	-DCMAKE_MODULE_PATH=$(CURDIR)/debian/cmake \
+	-DSHERPA_DEBIAN_VENDOR_DIR=$(CURDIR)/debian/vendor \
+	-DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_INSTALL_PREFIX=/usr \
+	-DCMAKE_INSTALL_LIBDIR=lib/$(DEB_HOST_MULTIARCH) \
+	-DBUILD_SHARED_LIBS=ON \
+	-DSHERPA_ONNX_ENABLE_C_API=ON \
+	-DSHERPA_ONNX_ENABLE_PYTHON=OFF \
+	-DSHERPA_ONNX_ENABLE_TESTS=OFF \
+	-DSHERPA_ONNX_ENABLE_CHECK=OFF \
+	-DSHERPA_ONNX_ENABLE_BINARY=OFF \
+	-DSHERPA_ONNX_BUILD_C_API_EXAMPLES=OFF \
+	-DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF \
+	-DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF \
+	-DSHERPA_ONNX_ENABLE_JNI=OFF \
+	-DSHERPA_ONNX_ENABLE_GPU=OFF \
+	-DSHERPA_ONNX_ENABLE_TTS=OFF \
+	-DSHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION=OFF \
+	-DSHERPA_ONNX_USE_PRE_INSTALLED_ONNXRUNTIME_IF_AVAILABLE=ON
+
+%:
+	dh $@ --buildsystem=cmake+ninja --builddirectory=build
+
+override_dh_auto_configure:
+	@test -f debian/vendor/kaldi-native-fbank/CMakeLists.txt \
+	  -a -f debian/vendor/kaldi-decoder/CMakeLists.txt \
+	  -a -f debian/vendor/simple-sentencepiece/CMakeLists.txt \
+	  -a -f debian/vendor/kissfft/CMakeLists.txt \
+	  -a -f debian/vendor/kaldifst/CMakeLists.txt \
+	  -a -f debian/vendor/eigen/CMakeLists.txt \
+	  -a -f debian/vendor/openfst/CMakeLists.txt \
+	  || { echo "debian/vendor missing — run debian/vendor-fetch.sh first" >&2; exit 1; }
+	dh_auto_configure -- $(CMAKE_OPTIONS)
+
+# Upstream install() paths hardcode "lib/" and the .pc template uses bare
+# ${exec_prefix}/lib. Relocate into the multiarch libdir without touching
+# upstream cmake.
+override_dh_auto_install:
+	dh_auto_install
+	set -e; \
+	dest="$(CURDIR)/debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)"; \
+	mkdir -p "$$dest/pkgconfig"; \
+	if [ -d "$(CURDIR)/debian/tmp/usr/lib" ]; then \
+	  find "$(CURDIR)/debian/tmp/usr/lib" -maxdepth 1 -type f \
+	    \( -name 'libsherpa-onnx*.so*' -o -name 'libsherpa-onnx*.a' \) \
+	    -exec mv -t "$$dest" {} +; \
+	fi; \
+	if [ -f "$(CURDIR)/debian/tmp/usr/sherpa-onnx.pc" ]; then \
+	  mv "$(CURDIR)/debian/tmp/usr/sherpa-onnx.pc" "$$dest/pkgconfig/sherpa-onnx.pc"; \
+	fi; \
+	if [ -f "$(CURDIR)/debian/tmp/usr/lib/pkgconfig/sherpa-onnx.pc" ]; then \
+	  mv "$(CURDIR)/debian/tmp/usr/lib/pkgconfig/sherpa-onnx.pc" "$$dest/pkgconfig/sherpa-onnx.pc"; \
+	fi; \
+	rmdir "$(CURDIR)/debian/tmp/usr/lib/pkgconfig" 2>/dev/null || true; \
+	if [ -f "$$dest/pkgconfig/sherpa-onnx.pc" ]; then \
+	  sed -i 's|^libdir=$${exec_prefix}/lib$$|libdir=$${exec_prefix}/lib/$(DEB_HOST_MULTIARCH)|' \
+	    "$$dest/pkgconfig/sherpa-onnx.pc"; \
+	fi; \
+	rm -f "$(CURDIR)/debian/tmp/usr/lib"/libonnxruntime* \
+	  "$(CURDIR)/debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)"/libonnxruntime*
+
+override_dh_auto_test:
+	# Upstream tests are disabled for this packaging build.
