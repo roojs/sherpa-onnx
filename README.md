@@ -8,6 +8,16 @@
 > examples, tests, GPU/JNI/NPU, and similar extras are **not** enabled in the
 > packaged build. See `debian/` and `rpm/` for what actually ships.
 >
+> **System dependency** (ONNX Runtime) — install before using the packages:
+>
+> ```bash
+> # Debian / Ubuntu (25.04+; 24.04 has no onnxruntime package)
+> sudo apt install libonnxruntime-dev
+>
+> # Fedora
+> sudo dnf install onnxruntime-devel
+> ```
+>
 > For upstream docs, models, and the full feature matrix below, prefer the
 > [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) repository.
 

@@ -20,20 +20,21 @@ set(kissfft_BINARY_DIR "${CMAKE_BINARY_DIR}/debian-vendor/kissfft-build")
 
 message(STATUS "debian vendor kissfft: ${kissfft_SOURCE_DIR}")
 
-if(BUILD_SHARED_LIBS)
-  set(_build_shared_libs_bak ${BUILD_SHARED_LIBS})
-  set(BUILD_SHARED_LIBS OFF)
-endif()
+# When included from kaldi-native-fbank, do not flip BUILD_SHARED_LIBS back ON
+# before fbank's own add_library runs.
+set(_kissfft_shared_bak ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF)
 
 add_subdirectory(${kissfft_SOURCE_DIR} ${kissfft_BINARY_DIR} EXCLUDE_FROM_ALL)
 
-if(_build_shared_libs_bak)
-  set_target_properties(kissfft
-    PROPERTIES
-      POSITION_INDEPENDENT_CODE ON
-      C_VISIBILITY_PRESET hidden
-      CXX_VISIBILITY_PRESET hidden
-  )
+set_target_properties(kissfft
+  PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
+if(_kissfft_shared_bak)
+  set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS ON)
 endif()
 

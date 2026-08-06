@@ -18,10 +18,9 @@ set(simple-sentencepiece_BINARY_DIR "${CMAKE_BINARY_DIR}/debian-vendor/simple-se
 
 message(STATUS "debian vendor simple-sentencepiece: ${simple-sentencepiece_SOURCE_DIR}")
 
-if(BUILD_SHARED_LIBS)
-  set(_build_shared_libs_bak ${BUILD_SHARED_LIBS})
-  set(BUILD_SHARED_LIBS OFF)
-endif()
+set(_build_shared_libs_bak ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF)
 
 add_subdirectory(${simple-sentencepiece_SOURCE_DIR} ${simple-sentencepiece_BINARY_DIR} EXCLUDE_FROM_ALL)
 
@@ -29,13 +28,13 @@ if(TARGET ssentencepiece_core AND (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
   target_compile_options(ssentencepiece_core PRIVATE -Wno-deprecated-declarations)
 endif()
 
+set_target_properties(ssentencepiece_core
+  PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
 if(_build_shared_libs_bak)
-  set_target_properties(ssentencepiece_core
-    PROPERTIES
-      POSITION_INDEPENDENT_CODE ON
-      C_VISIBILITY_PRESET hidden
-      CXX_VISIBILITY_PRESET hidden
-  )
+  set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS ON)
 endif()
 

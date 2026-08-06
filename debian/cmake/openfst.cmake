@@ -32,17 +32,18 @@ set(openfst_BINARY_DIR "${CMAKE_BINARY_DIR}/debian-vendor/openfst-build")
 message(STATUS "debian vendor openfst: ${openfst_SOURCE_DIR}")
 
 set(_build_shared_libs_bak ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF)
 
 add_subdirectory(${openfst_SOURCE_DIR} ${openfst_BINARY_DIR} EXCLUDE_FROM_ALL)
 
+set_target_properties(fst fstfar
+  PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
 if(_build_shared_libs_bak)
-  set_target_properties(fst fstfar
-    PROPERTIES
-      POSITION_INDEPENDENT_CODE ON
-      C_VISIBILITY_PRESET hidden
-      CXX_VISIBILITY_PRESET hidden
-  )
+  set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS ON)
 endif()
 
