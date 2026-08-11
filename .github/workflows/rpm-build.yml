@@ -47,7 +47,7 @@ jobs:
           dnf -y install ca-certificates git
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Restore vendor cache
         id: restore-vendor
