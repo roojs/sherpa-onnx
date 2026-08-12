@@ -15,7 +15,7 @@ on:
         default: false
   push:
     tags:
-      - 'v*'
+      - 'v*-roojs*'
 
 permissions:
   contents: write

@@ -3,14 +3,13 @@ name: Mirror upstream v* release
 # Poll k2-fsa/sherpa-onnx for new semver tags (vX.Y.Z). Ignore non-version
 # "releases" such as xcframework / model dumps.
 #
-# When a new v* tag appears:
-#   1. Merge that upstream release commit into our master (keeps debian/ + rpm/)
+# When a new upstream vX.Y.Z appears and we have no vX.Y.Z-roojsN tag yet:
+#   1. Merge that upstream release into master (keeps debian/ + rpm/)
 #      .github/workflows is fork-owned: never take upstream's tree (modify/delete
 #      conflicts there are auto-resolved).
-#   2. Create the same tag name on this fork (points at our packaged tree)
-#   3. workflow_dispatch Debian + RPM builds
+#   2. Copy upstream's vX.Y.Z tag onto this fork (reference only; no builds)
+#   3. Tag packaged master as vX.Y.Z-roojsN and dispatch Debian + RPM builds
 #      (GITHUB_TOKEN tag pushes do not trigger on.push workflows)
-#   4. Those builds publish packages onto a GitHub Release for the tag
 
 run-name: Mirror upstream release · ${{ github.ref_name }}
 
@@ -68,18 +67,16 @@ jobs:
           echo "Latest upstream semver tag: ${latest}"
           echo "tag=${latest}" >> "$GITHUB_OUTPUT"
 
-          # Exact vX.Y.Z, or a packaging rebuild like vX.Y.Z-roojs1, means we
-          # already handled this upstream release — exit green (no-op).
-          if git ls-remote --tags origin "refs/tags/${latest}" | grep -q . \
-            || git ls-remote --tags origin "refs/tags/${latest}-*" | grep -q .; then
-            echo "Tag ${latest} (or ${latest}-*) already on origin — nothing to do"
+          # Packaging is tracked by vX.Y.Z-roojsN tags only (not bare upstream tags).
+          if git ls-remote --tags origin "refs/tags/${latest}-roojs*" | grep -q .; then
+            echo "Packaging tag ${latest}-roojs* already on origin — nothing to do"
             echo "new=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Tag ${latest} is new for this fork"
+            echo "No packaging tag for ${latest} yet"
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Merge upstream release, push tag, dispatch builds
+      - name: Sync upstream release, tag roojs, dispatch builds
         if: steps.upstream.outputs.new == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -93,9 +90,7 @@ jobs:
           git checkout master
           git pull --ff-only origin master
 
-          # Fetch release commit under a side ref so we do not clobber local tags.
-          # Remote branch is "master", not "upstream/master".
-          git fetch upstream \
+          git fetch --no-tags upstream \
             "refs/tags/${TAG}:refs/tags/upstream-${TAG}" \
             master:refs/remotes/upstream/master
 
@@ -126,9 +121,6 @@ jobs:
               echo "Auto-resolving ${#conflicts[@]} workflow-only conflict(s)"
             fi
 
-            # Upstream brings hundreds of workflow changes. GITHUB_TOKEN cannot
-            # push those without workflows:write, and this fork only runs our own
-            # packaging/sync workflows — always keep the pre-merge tree.
             git rm -rf --quiet .github/workflows
             git checkout "${pre_merge}" -- .github/workflows/
 
@@ -141,10 +133,22 @@ jobs:
             git push origin master
           fi
 
-          git tag "${TAG}"
-          git push origin "refs/tags/${TAG}"
+          # Copy upstream's tag for reference (points at their release commit).
+          if ! git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            git push origin "refs/tags/upstream-${TAG}:refs/tags/${TAG}"
+            echo "Copied upstream tag ${TAG}"
+          fi
+
+          n=1
+          while git ls-remote --tags origin "refs/tags/${TAG}-roojs${n}" | grep -q .; do
+            n=$((n + 1))
+          done
+          release_tag="${TAG}-roojs${n}"
+
+          git tag "${release_tag}"
+          git push origin "refs/tags/${release_tag}"
 
           # Tag push with GITHUB_TOKEN does not start on.push workflows.
-          gh workflow run debian-build.yml --ref "${TAG}"
-          gh workflow run rpm-build.yml --ref "${TAG}"
-          echo "Created ${TAG} and dispatched Debian + RPM builds"
+          gh workflow run debian-build.yml --ref "${release_tag}"
+          gh workflow run rpm-build.yml --ref "${release_tag}"
+          echo "Created ${release_tag} and dispatched Debian + RPM builds"
