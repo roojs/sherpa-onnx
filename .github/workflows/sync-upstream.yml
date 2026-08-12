@@ -2,8 +2,7 @@ name: Sync upstream
 
 # Keep origin/master aligned with k2-fsa/sherpa-onnx master.
 # Packaging trees (debian/, rpm/) live only on this fork and should merge cleanly.
-# .github/workflows is fork-owned: never take upstream's tree (modify/delete
-# conflicts there are auto-resolved).
+# Upstream workflow yaml is pruned after merge (fork keeps four jobs only).
 
 run-name: Sync upstream · ${{ github.ref_name }}
 
@@ -51,8 +50,6 @@ jobs:
             exit 0
           fi
 
-          pre_merge=$(git rev-parse HEAD)
-
           set +e
           git merge upstream/master --no-edit
           merge_status=$?
@@ -76,15 +73,12 @@ jobs:
             echo "Auto-resolving ${#conflicts[@]} workflow-only conflict(s)"
           fi
 
-          # Upstream brings hundreds of workflow changes. GITHUB_TOKEN cannot
-          # push those without workflows:write, and this fork only runs our own
-          # packaging/sync workflows — always keep the pre-merge tree.
-          git rm -rf --quiet .github/workflows
-          git checkout "${pre_merge}" -- .github/workflows/
+          # Drop upstream's hundreds of workflow yaml files; keep fork packaging/sync only.
+          ./.github/scripts/prune-fork-workflows.sh
 
           if [[ "${merge_status}" -ne 0 ]]; then
             git commit --no-edit
-          elif ! git diff --cached --quiet -- .github/workflows/; then
+          elif ! git diff --cached --quiet; then
             git commit --amend --no-edit
           fi
 
