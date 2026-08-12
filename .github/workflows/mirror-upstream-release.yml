@@ -7,9 +7,11 @@ name: Mirror upstream v* release
 #   1. Merge that upstream release into master (keeps debian/ + rpm/)
 #      .github/workflows is fork-owned: never take upstream's tree (modify/delete
 #      conflicts there are auto-resolved).
-#   2. Copy upstream's vX.Y.Z tag onto this fork (reference only; no builds)
-#   3. Tag packaged master as vX.Y.Z-roojsN and dispatch Debian + RPM builds
+#   2. Tag packaged master as vX.Y.Z-roojsN and dispatch Debian + RPM builds
 #      (GITHUB_TOKEN tag pushes do not trigger on.push workflows)
+#
+# Bare upstream vX.Y.Z tags are not copied to this fork: GITHUB_TOKEN cannot push
+# a tag that points at an upstream commit (workflow files differ; needs workflows:write).
 
 run-name: Mirror upstream release · ${{ github.ref_name }}
 
@@ -131,12 +133,6 @@ jobs:
             fi
 
             git push origin master
-          fi
-
-          # Copy upstream's tag for reference (points at their release commit).
-          if ! git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
-            git push origin "refs/tags/upstream-${TAG}:refs/tags/${TAG}"
-            echo "Copied upstream tag ${TAG}"
           fi
 
           n=1
