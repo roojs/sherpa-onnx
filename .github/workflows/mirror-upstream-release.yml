@@ -5,8 +5,7 @@ name: Mirror upstream v* release
 #
 # When a new upstream vX.Y.Z appears and we have no vX.Y.Z-roojsN tag yet:
 #   1. Merge that upstream release into master (keeps debian/ + rpm/)
-#      .github/workflows is fork-owned: never take upstream's tree (modify/delete
-#      conflicts there are auto-resolved).
+#      Upstream workflow yaml is pruned after merge (fork keeps four jobs only).
 #   2. Tag packaged master as vX.Y.Z-roojsN
 #   3. Dispatch Debian + RPM builds (GITHUB_TOKEN tag pushes do not trigger on.push)
 #
@@ -96,8 +95,6 @@ jobs:
             master:refs/remotes/upstream/master
 
           if ! git merge-base --is-ancestor "upstream-${TAG}" HEAD; then
-            pre_merge=$(git rev-parse HEAD)
-
             set +e
             git merge "upstream-${TAG}" --no-edit \
               -m "Merge upstream ${TAG} for packaging"
@@ -122,12 +119,11 @@ jobs:
               echo "Auto-resolving ${#conflicts[@]} workflow-only conflict(s)"
             fi
 
-            git rm -rf --quiet .github/workflows
-            git checkout "${pre_merge}" -- .github/workflows/
+            ./.github/scripts/prune-fork-workflows.sh
 
             if [[ "${merge_status}" -ne 0 ]]; then
               git commit --no-edit
-            elif ! git diff --cached --quiet -- .github/workflows/; then
+            elif ! git diff --cached --quiet; then
               git commit --amend --no-edit
             fi
 

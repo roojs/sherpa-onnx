@@ -1,1 +1,7 @@
-!*.yaml
+# Upstream ships hundreds of workflows; this fork keeps four packaging/sync jobs.
+*
+!debian-build.yml
+!rpm-build.yml
+!sync-upstream.yml
+!mirror-upstream-release.yml
+!.gitignore
