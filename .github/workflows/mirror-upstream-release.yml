@@ -7,11 +7,11 @@ name: Mirror upstream v* release
 #   1. Merge that upstream release into master (keeps debian/ + rpm/)
 #      .github/workflows is fork-owned: never take upstream's tree (modify/delete
 #      conflicts there are auto-resolved).
-#   2. Tag packaged master as vX.Y.Z-roojsN and dispatch Debian + RPM builds
-#      (GITHUB_TOKEN tag pushes do not trigger on.push workflows)
+#   2. Tag packaged master as vX.Y.Z-roojsN
+#   3. Dispatch Debian + RPM builds (GITHUB_TOKEN tag pushes do not trigger on.push)
 #
-# Bare upstream vX.Y.Z tags are not copied to this fork: GITHUB_TOKEN cannot push
-# a tag that points at an upstream commit (workflow files differ; needs workflows:write).
+# workflow_dispatch re-dispatches builds for the latest -roojs tag (recovery after
+# a partial run where the tag was pushed but builds were not started).
 
 run-name: Mirror upstream release · ${{ github.ref_name }}
 
@@ -69,16 +69,15 @@ jobs:
           echo "Latest upstream semver tag: ${latest}"
           echo "tag=${latest}" >> "$GITHUB_OUTPUT"
 
-          # Packaging is tracked by vX.Y.Z-roojsN tags only (not bare upstream tags).
           if git ls-remote --tags origin "refs/tags/${latest}-roojs*" | grep -q .; then
-            echo "Packaging tag ${latest}-roojs* already on origin — nothing to do"
+            echo "Packaging tag ${latest}-roojs* already on origin"
             echo "new=false" >> "$GITHUB_OUTPUT"
           else
             echo "No packaging tag for ${latest} yet"
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Sync upstream release, tag roojs, dispatch builds
+      - name: Sync upstream release and tag roojs
         if: steps.upstream.outputs.new == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -143,8 +142,31 @@ jobs:
 
           git tag "${release_tag}"
           git push origin "refs/tags/${release_tag}"
+          echo "Created ${release_tag}"
 
-          # Tag push with GITHUB_TOKEN does not start on.push workflows.
-          gh workflow run debian-build.yml --ref "${release_tag}"
-          gh workflow run rpm-build.yml --ref "${release_tag}"
-          echo "Created ${release_tag} and dispatched Debian + RPM builds"
+      - name: Dispatch packaging builds
+        if: >-
+          steps.upstream.outputs.new == 'true'
+          || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -euo pipefail
+          release_tag="$(
+            git ls-remote --tags origin "refs/tags/${TAG}-roojs*" \
+              | awk -F/ '{print $NF}' \
+              | sort -V \
+              | tail -n1
+          )"
+          if [ -z "${release_tag}" ]; then
+            echo "No packaging tag for ${TAG} on origin" >&2
+            exit 1
+          fi
+          echo "Dispatching Debian + RPM builds for ${release_tag}"
+          gh workflow run debian-build.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${release_tag}"
+          gh workflow run rpm-build.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${release_tag}"
