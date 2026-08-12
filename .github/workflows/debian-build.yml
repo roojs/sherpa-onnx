@@ -132,10 +132,18 @@ jobs:
           name: libsherpa-onnx-c-api-debs
           path: artifacts/*
 
+      - name: Prepare release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./.github/scripts/packaging-release-notes.sh release-notes.md
+
       - name: Attach .debs to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body_path: release-notes.md
