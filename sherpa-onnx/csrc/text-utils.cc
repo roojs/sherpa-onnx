@@ -31,6 +31,49 @@
 
 namespace sherpa_onnx {
 
+std::string QuoteJsonString(const std::string &text) {
+  constexpr char hex[] = "0123456789abcdef";
+  std::string ans;
+  ans.reserve(text.size() + 2);
+  ans.push_back('"');
+  for (unsigned char c : text) {
+    switch (c) {
+      case '"':
+        ans += "\\\"";
+        break;
+      case '\\':
+        ans += "\\\\";
+        break;
+      case '\b':
+        ans += "\\b";
+        break;
+      case '\f':
+        ans += "\\f";
+        break;
+      case '\n':
+        ans += "\\n";
+        break;
+      case '\r':
+        ans += "\\r";
+        break;
+      case '\t':
+        ans += "\\t";
+        break;
+      default:
+        if (c < 0x20) {
+          ans += "\\u00";
+          ans.push_back(hex[c >> 4]);
+          ans.push_back(hex[c & 0xf]);
+        } else {
+          ans.push_back(static_cast<char>(c));
+        }
+        break;
+    }
+  }
+  ans.push_back('"');
+  return ans;
+}
+
 // copied from kaldi/src/util/text-util.cc
 template <class T>
 class NumberIstream {
@@ -409,7 +452,7 @@ std::vector<std::string> SplitUtf8(const std::string &text) {
       // this is an ascii
       ans.emplace_back(reinterpret_cast<const char *>(start), 1);
       ++start;
-    } else if (2 <= num_bytes && num_bytes <= 4) {
+    } else if (2 <= num_bytes && num_bytes <= 4 && num_bytes <= end - start) {
       ans.emplace_back(reinterpret_cast<const char *>(start), num_bytes);
       start += num_bytes;
     } else {
@@ -976,6 +1019,24 @@ std::u32string Utf8ToUtf32(const std::string &str) {
   return out;
 }
 
+std::u16string Utf8ToUtf16(const std::string &str) {
+  std::u16string out;
+  out.reserve(str.size());
+
+  // Utf8ToUtf32 never returns surrogates or code points above U+10FFFF
+  for (char32_t cp : Utf8ToUtf32(str)) {
+    if (cp >= 0x10000) {
+      cp -= 0x10000;
+      out.push_back(static_cast<char16_t>(0xD800 + (cp >> 10)));
+      out.push_back(static_cast<char16_t>(0xDC00 + (cp & 0x3FF)));
+    } else {
+      out.push_back(static_cast<char16_t>(cp));
+    }
+  }
+
+  return out;
+}
+
 std::string Utf32ToUtf8(const std::u32string &str) {
   std::string out;
   out.reserve(str.size() * 2);  // rough estimate
@@ -1004,6 +1065,24 @@ std::string Utf32ToUtf8(const std::u32string &str) {
   }
 
   return out;
+}
+
+std::string Utf16ToUtf8(const std::u16string &str) {
+  std::u32string u32;
+  u32.reserve(str.size());
+
+  for (size_t i = 0; i < str.size(); ++i) {
+    char32_t c = str[i];
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.size() &&
+        str[i + 1] >= 0xDC00 && str[i + 1] <= 0xDFFF) {
+      c = 0x10000 + ((c - 0xD800) << 10) + (str[i + 1] - 0xDC00);
+      ++i;
+    }
+    // Utf32ToUtf8 turns an unpaired surrogate into U+FFFD
+    u32.push_back(c);
+  }
+
+  return Utf32ToUtf8(u32);
 }
 
 // Helper: Convert ASCII chars in a std::string to uppercase (leaves non-ASCII

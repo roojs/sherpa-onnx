@@ -24,6 +24,10 @@
 
 namespace sherpa_onnx {
 
+// Return a JSON string literal, including the surrounding quotes. Escape
+// control characters, quotes, and backslashes; preserve UTF-8 bytes unchanged.
+std::string QuoteJsonString(const std::string &text);
+
 /// Converts a string into an integer via strtoll and returns false if there was
 /// any kind of problem (i.e. the string was not an integer or contained extra
 /// non-whitespace junk, or the integer was too large to fit into the type it is
@@ -165,11 +169,19 @@ std::string Join(const std::vector<std::string> &ss,
 // Converts a UTF-8 std::string to a UTF-32 std::u32string
 std::u32string Utf8ToUtf32(const std::string &str);
 
+// Converts a UTF-8 std::string to a UTF-16 std::u16string. A code point
+// above U+FFFF becomes a surrogate pair; invalid bytes become U+FFFD.
+std::u16string Utf8ToUtf16(const std::string &str);
+
 // Converts a UTF-32 std::u32string to a UTF-8 std::string
 std::string Utf32ToUtf8(const std::u32string &str);
 
 // Converts a single UTF-32 codepoint to a UTF-8 std::string
 std::string Utf32ToUtf8(char32_t cp);
+
+// Converts a UTF-16 std::u16string to a UTF-8 std::string.
+// Surrogate pairs are combined; an unpaired surrogate becomes U+FFFD.
+std::string Utf16ToUtf8(const std::u16string &str);
 
 // Helper: Convert ASCII chars in a std::string to uppercase (leaves non-ASCII
 // unchanged)

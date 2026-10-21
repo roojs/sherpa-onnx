@@ -15,6 +15,30 @@
 
 namespace sherpa_onnx {
 
+TEST(QuoteJsonString, EmptyAndOrdinaryText) {
+  EXPECT_EQ(QuoteJsonString(""), "\"\"");
+  EXPECT_EQ(QuoteJsonString("plain / text"), "\"plain / text\"");
+  EXPECT_EQ(QuoteJsonString("你好世界 🌍"), "\"你好世界 🌍\"");
+  EXPECT_EQ(QuoteJsonString("\x7f"), "\"\x7f\"");
+}
+
+TEST(QuoteJsonString, QuotesAndBackslashes) {
+  EXPECT_EQ(QuoteJsonString("\"quoted\" \\ path"),
+            "\"\\\"quoted\\\" \\\\ path\"");
+}
+
+TEST(QuoteJsonString, AllControlCharacters) {
+  std::string text;
+  for (int32_t c = 0; c < 0x20; ++c) {
+    text.push_back(static_cast<char>(c));
+  }
+  EXPECT_EQ(QuoteJsonString(text),
+            "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007"
+            "\\b\\t\\n\\u000b\\f\\r\\u000e\\u000f"
+            "\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017"
+            "\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\"");
+}
+
 TEST(ToLowerCase, WideString) {
   std::string text =
       "Hallo! Übeltäter übergibt Ärzten öfters äußerst ätzende Öle 3€";
@@ -132,6 +156,33 @@ TEST(RemoveInvalidUtf8Sequences, DebugSpaceFollowedByInvalidByte) {
   std::cout << std::endl;
 
   EXPECT_EQ(output, " ");  // Expect `0xc4` to be removed, leaving only space
+}
+
+TEST(SplitUtf8, TruncatedSequenceAtEndIsSkipped) {
+  // "今天天气很好" without the last byte of "好"
+  std::string text(
+      "\xe4\xbb\x8a\xe5\xa4\xa9\xe5\xa4\xa9"
+      "\xe6\xb0\x94\xe5\xbe\x88\xe5\xa5",
+      17);
+  std::vector<std::string> expected = {"今", "天", "天", "气", "很"};
+  EXPECT_EQ(SplitUtf8(text), expected);
+
+  // The first byte of a 4-byte sequence, and nothing after it
+  std::string text2("0123456789abcdef\xf0", 17);
+  EXPECT_EQ(SplitUtf8(text2), std::vector<std::string>{"0123456789abcdef"});
+}
+
+TEST(RemoveInvalidUtf8Sequences, ByteLevelBpeTokenFragment) {
+  // Whisper byte-level-BPE tokens can split a multi-byte UTF-8 character
+  // across two tokens. Each fragment alone is invalid UTF-8 and is
+  // stripped; the character only survives when the fragments are joined
+  // first. Recognizer implementations must therefore concatenate tokens
+  // before calling this function (see the whisper Convert()).
+  std::string frag1 = "\xd7";  // leading byte of a Hebrew letter
+  std::string frag2 = "\xa8";  // continuation byte (frag1+frag2 is a letter)
+  EXPECT_EQ(RemoveInvalidUtf8Sequences(frag1), "");
+  EXPECT_EQ(RemoveInvalidUtf8Sequences(frag2), "");
+  EXPECT_EQ(RemoveInvalidUtf8Sequences(frag1 + frag2), "\xd7\xa8");
 }
 
 TEST(SplitByAllPunctuation, English) {
@@ -378,17 +429,82 @@ TEST(ParseLexiconFile, MultiCodepointPhonemes) {
   EXPECT_EQ(entries[0].phonemes[5], "ɪ");
 }
 
-TEST(RemoveInvalidUtf8Sequences, ByteLevelBpeTokenFragment) {
-    // Whisper byte-level-BPE tokens can split a multi-byte UTF-8 character
-    // across two tokens. Each fragment alone is invalid UTF-8 and is
-    // stripped; the character only survives when the fragments are joined
-    // first. Recognizer implementations must therefore concatenate tokens
-    // before calling this function (see the whisper Convert()).
-    std::string frag1 = "\xd7";  // leading byte of a Hebrew letter
-    std::string frag2 = "\xa8";  // continuation byte (frag1+frag2 is a letter)
-    EXPECT_EQ(RemoveInvalidUtf8Sequences(frag1), "");
-    EXPECT_EQ(RemoveInvalidUtf8Sequences(frag2), "");
-    EXPECT_EQ(RemoveInvalidUtf8Sequences(frag1 + frag2), "\xd7\xa8");
-  }
+TEST(Utf8ToUtf16, Bmp) {
+  // a, U+00E9, U+20AC
+  std::u16string expected = {u'a', 0x00E9, 0x20AC};
+  EXPECT_EQ(Utf8ToUtf16("a\xc3\xa9\xe2\x82\xac"), expected);
+}
+
+TEST(Utf8ToUtf16, SurrogatePairs) {
+  // U+1F600 and U+20000 become surrogate pairs; the text after them is kept
+  std::u16string expected = {u'a', 0xD83D, 0xDE00, u'b', 0xD840, 0xDC00, u'c'};
+  EXPECT_EQ(Utf8ToUtf16("a\xf0\x9f\x98\x80"
+                        "b\xf0\xa0\x80\x80"
+                        "c"),
+            expected);
+
+  std::u16string max = {0xDBFF, 0xDFFF};
+  EXPECT_EQ(Utf8ToUtf16("\xf4\x8f\xbf\xbf"), max);  // U+10FFFF
+}
+
+TEST(Utf8ToUtf16, InvalidBytes) {
+  // an encoded surrogate (modified UTF-8, ed a0 bd) is not valid UTF-8
+  std::u16string expected = {0xFFFD, 0xFFFD, 0xFFFD, u'a'};
+  EXPECT_EQ(Utf8ToUtf16("\xed\xa0\xbd"
+                        "a"),
+            expected);
+}
+
+TEST(Utf8ToUtf16, EmbeddedNull) {
+  // the text after U+0000 is kept (modified UTF-8 would use c0 80)
+  std::u16string expected = {u'a', 0, u'b'};
+  EXPECT_EQ(Utf8ToUtf16(std::string("a\0b", 3)), expected);
+}
+
+TEST(Utf8ToUtf16, Empty) { EXPECT_EQ(Utf8ToUtf16(""), u""); }
+
+TEST(Utf16ToUtf8, Bmp) {
+  // A, é, €, →
+  EXPECT_EQ(Utf16ToUtf8(u"A\u00e9\u20ac\u2192"),
+            "A\xc3\xa9\xe2\x82\xac\xe2\x86\x92");
+}
+
+TEST(Utf16ToUtf8, SurrogatePairs) {
+  // U+1F600 and U+20000 must be 4-byte sequences, not modified UTF-8
+  // (ed a0 bd ed b8 80 for U+1F600)
+  EXPECT_EQ(Utf16ToUtf8(u"\U0001F600"), "\xf0\x9f\x98\x80");
+  EXPECT_EQ(Utf16ToUtf8(u"a\U00020000b"),
+            "a\xf0\xa0\x80\x80"
+            "b");
+  EXPECT_EQ(Utf16ToUtf8(u"\U0010FFFF"), "\xf4\x8f\xbf\xbf");
+}
+
+TEST(Utf16ToUtf8, UnpairedSurrogates) {
+  std::u16string high_at_end = {u'a', static_cast<char16_t>(0xD83D)};
+  EXPECT_EQ(Utf16ToUtf8(high_at_end), "a\xef\xbf\xbd");
+
+  std::u16string high_then_bmp = {static_cast<char16_t>(0xD83D), u'a'};
+  EXPECT_EQ(Utf16ToUtf8(high_then_bmp),
+            "\xef\xbf\xbd"
+            "a");
+
+  std::u16string lone_low = {static_cast<char16_t>(0xDE00), u'a'};
+  EXPECT_EQ(Utf16ToUtf8(lone_low),
+            "\xef\xbf\xbd"
+            "a");
+
+  // low before high is not a pair
+  std::u16string reversed = {static_cast<char16_t>(0xDE00),
+                             static_cast<char16_t>(0xD83D)};
+  EXPECT_EQ(Utf16ToUtf8(reversed), "\xef\xbf\xbd\xef\xbf\xbd");
+}
+
+TEST(Utf16ToUtf8, EmbeddedNull) {
+  // standard UTF-8 uses a 0 byte, not c0 80 as in modified UTF-8
+  std::u16string s = {u'a', u'\0', u'b'};
+  EXPECT_EQ(Utf16ToUtf8(s), std::string("a\0b", 3));
+}
+
+TEST(Utf16ToUtf8, Empty) { EXPECT_EQ(Utf16ToUtf8(u""), ""); }
 
 }  // namespace sherpa_onnx
