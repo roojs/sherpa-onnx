@@ -9,6 +9,24 @@ lexicon for it and packs `<name>.tar.bz2` for the
 [fa-models](https://github.com/k2-fsa/sherpa-onnx/releases/tag/fa-models)
 release.
 
+**On Android?** Download the pre-built APKs of the
+[forced-alignment Android app](../../android/SherpaOnnxForcedAlignment)
+(one APK per model) from the
+[apk-fa](https://github.com/k2-fsa/sherpa-onnx/releases/tag/apk-fa) release;
+[android.md](android.md) describes which APK to pick.
+
+**In a browser?** Two pre-built web demos are available, one app per model
+(see [web.md](web.md) for which file to pick):
+
+  - the **web demo** ([wasm/forced-alignment](../../wasm/forced-alignment)):
+    download `sherpa-onnx-v<version>-wasm-fa-<model>.zip` from the current release,
+    e.g. [v2.0.1](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v2.0.1),
+    unzip it and open `index.html` with any static HTTP server;
+  - the **web app** ([react-examples/forced-alignment](../../react-examples/forced-alignment)):
+    download `sherpa-onnx-react-fa-<model>.zip` from the
+    [react-fa](https://github.com/k2-fsa/sherpa-onnx/releases/tag/react-fa)
+    release, unzip it and serve the directory with any static HTTP server.
+
 ## Table of contents
 
 - [English](#english)
@@ -18,6 +36,7 @@ release.
 - [Model package contents](#model-package-contents)
 - [Lexicon format](#lexicon-format)
 - [Usage](#usage)
+  - [Android](#android)
 - [How the packages are built](#how-the-packages-are-built)
 
 ## English
@@ -148,6 +167,14 @@ the lexicon and reported as out-of-vocabulary at runtime.
   polyphones. No runtime pypinyin is needed.
 
 ## Usage
+
+### Android
+
+On Android, run these models with the pre-built APKs of the
+[forced-alignment Android app](../../android/SherpaOnnxForcedAlignment):
+one APK per model and ABI, in the
+[apk-fa](https://github.com/k2-fsa/sherpa-onnx/releases/tag/apk-fa) release.
+See [android.md](android.md) for which APK to pick.
 
 ### Pre-built binary
 

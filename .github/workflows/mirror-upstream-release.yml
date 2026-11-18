@@ -6,6 +6,8 @@ name: Mirror upstream v* release
 # When a new upstream vX.Y.Z appears and we have no vX.Y.Z-roojsN tag yet:
 #   1. Merge that upstream release into master (keeps debian/ + rpm/)
 #      Upstream workflow yaml is pruned after merge (fork keeps four jobs only).
+#      A README conflict is auto-resolved only when this fork's side is the
+#      upstream base plus the leading packaging banner.
 #   2. Tag packaged master as vX.Y.Z-roojsN
 #   3. Dispatch Debian + RPM builds (GITHUB_TOKEN tag pushes do not trigger on.push)
 #
@@ -102,21 +104,10 @@ jobs:
             set -e
 
             if [[ "${merge_status}" -ne 0 ]]; then
-              mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
-              non_wf=()
-              for f in "${conflicts[@]+"${conflicts[@]}"}"; do
-                case "${f}" in
-                  .github/workflows/*) ;;
-                  *) non_wf+=("${f}") ;;
-                esac
-              done
-              if [[ ${#conflicts[@]} -eq 0 || ${#non_wf[@]} -gt 0 ]]; then
-                echo "Merge conflict outside auto-resolve (only .github/workflows/* is auto-fixed):" >&2
-                printf '  %s\n' "${conflicts[@]:-(none listed)}" >&2
+              if ! ./.github/scripts/resolve-fork-merge-conflicts.sh; then
                 git merge --abort || true
                 exit 1
               fi
-              echo "Auto-resolving ${#conflicts[@]} workflow-only conflict(s)"
             fi
 
             ./.github/scripts/prune-fork-workflows.sh
