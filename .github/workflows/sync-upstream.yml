@@ -3,8 +3,6 @@ name: Sync upstream
 # Keep origin/master aligned with k2-fsa/sherpa-onnx master.
 # Packaging trees (debian/, rpm/) live only on this fork and should merge cleanly.
 # Upstream workflow yaml is pruned after merge (fork keeps four jobs only).
-# A README conflict is auto-resolved only when this fork's side is the upstream
-# base plus the leading packaging banner. Any other content conflict fails the job.
 
 run-name: Sync upstream · ${{ github.ref_name }}
 
@@ -58,10 +56,21 @@ jobs:
           set -e
 
           if [[ "${merge_status}" -ne 0 ]]; then
-            if ! ./.github/scripts/resolve-fork-merge-conflicts.sh; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            non_wf=()
+            for f in "${conflicts[@]+"${conflicts[@]}"}"; do
+              case "${f}" in
+                .github/workflows/*) ;;
+                *) non_wf+=("${f}") ;;
+              esac
+            done
+            if [[ ${#conflicts[@]} -eq 0 || ${#non_wf[@]} -gt 0 ]]; then
+              echo "Merge conflict outside auto-resolve (only .github/workflows/* is auto-fixed):" >&2
+              printf '  %s\n' "${conflicts[@]:-(none listed)}" >&2
               git merge --abort || true
               exit 1
             fi
+            echo "Auto-resolving ${#conflicts[@]} workflow-only conflict(s)"
           fi
 
           # Drop upstream's hundreds of workflow yaml files; keep fork packaging/sync only.
