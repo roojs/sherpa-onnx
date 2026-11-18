@@ -5,6 +5,7 @@
 #include "sherpa-onnx/python/csrc/forced-aligner.h"
 
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -29,8 +30,11 @@ End time of this interval in seconds.
 )doc";
 
 static constexpr const char *kAlignmentIntervalTextDoc = R"doc(
-Label of this interval: a phone name, a word/character, or an empty
-string for silence gaps.
+Label of this interval: the phone symbol in the ``"phones"`` tier or the
+word/character in the ``"words"`` tier. It is an empty string for a
+silence gap in the ``"words"`` tier: the intervals tile the whole
+utterance, so the gaps between words are reported as intervals with
+empty text.
 )doc";
 
 static constexpr const char *kAlignmentTierDoc = R"doc(
@@ -38,7 +42,7 @@ One tier of an alignment: a named sequence of time intervals.
 )doc";
 
 static constexpr const char *kAlignmentTierNameDoc = R"doc(
-Name of this tier, e.g., ``"phones"`` or ``"words"``.
+Name of this tier: exactly ``"phones"`` or ``"words"``; never empty.
 )doc";
 
 static constexpr const char *kAlignmentTierIntervalsDoc = R"doc(
@@ -74,6 +78,11 @@ For example::
   # ...
   # words  0.0 0.06 ''              (silence gap)
   # words  0.06 0.45 ask            (one word interval)
+)doc";
+
+static constexpr const char *kForcedAlignmentResultTextGridDoc = R"doc(
+The alignment as a Praat TextGrid string (long format); the same as
+:meth:`to_textgrid`.
 )doc";
 
 static constexpr const char *kForcedAlignmentResultToTextGridDoc = R"doc(
@@ -294,7 +303,18 @@ static void PybindAlignmentInterval(py::module *m) {
   py::class_<PyClass>(*m, "AlignmentInterval", kAlignmentIntervalDoc)
       .def_readwrite("start", &PyClass::start, kAlignmentIntervalStartDoc)
       .def_readwrite("end", &PyClass::end, kAlignmentIntervalEndDoc)
-      .def_readwrite("text", &PyClass::text, kAlignmentIntervalTextDoc);
+      .def_readwrite("text", &PyClass::text, kAlignmentIntervalTextDoc)
+      .def("__repr__", [](const PyClass &self) {
+        std::ostringstream os;
+        os << "AlignmentInterval(start=" << self.start << ", end=" << self.end
+           << ", text='" << self.text << "')";
+        return os.str();
+      })
+      .def("__str__", [](const PyClass &self) {
+        std::ostringstream os;
+        os << self.start << "-" << self.end << " " << self.text;
+        return os.str();
+      });
 }
 
 static void PybindAlignmentTier(py::module *m) {
@@ -303,7 +323,13 @@ static void PybindAlignmentTier(py::module *m) {
   py::class_<PyClass>(*m, "AlignmentTier", kAlignmentTierDoc)
       .def_readwrite("name", &PyClass::name, kAlignmentTierNameDoc)
       .def_readwrite("intervals", &PyClass::intervals,
-                     kAlignmentTierIntervalsDoc);
+                     kAlignmentTierIntervalsDoc)
+      .def("__repr__", [](const PyClass &self) {
+        std::ostringstream os;
+        os << "AlignmentTier(name='" << self.name << "', intervals="
+           << self.intervals.size() << ")";
+        return os.str();
+      });
 }
 
 static void PybindForcedAlignmentResult(py::module *m) {
@@ -313,9 +339,40 @@ static void PybindForcedAlignmentResult(py::module *m) {
       .def_readwrite("duration", &PyClass::duration,
                      kForcedAlignmentResultDurationDoc)
       .def_readwrite("tiers", &PyClass::tiers, kForcedAlignmentResultTiersDoc)
+      .def_property_readonly(
+          "textgrid", &PyClass::ToTextGrid, kForcedAlignmentResultTextGridDoc)
       .def("to_textgrid", &PyClass::ToTextGrid,
            kForcedAlignmentResultToTextGridDoc)
-      .def("__str__", &PyClass::ToTextGrid);
+      .def("__repr__", [](const PyClass &self) {
+        std::ostringstream os;
+        size_t num_phones = 0, num_words = 0;
+        for (const auto &tier : self.tiers) {
+          if (tier.name == "phones") num_phones = tier.intervals.size();
+          if (tier.name == "words") {
+            for (const auto &itv : tier.intervals) {
+              if (!itv.text.empty()) ++num_words;
+            }
+          }
+        }
+        os << "ForcedAlignmentResult(duration=" << self.duration
+           << " s, phones=" << num_phones << ", words=" << num_words << ")";
+        return os.str();
+      })
+      .def("__str__", [](const PyClass &self) {
+        std::ostringstream os;
+        size_t num_phones = 0, num_words = 0;
+        for (const auto &tier : self.tiers) {
+          if (tier.name == "phones") num_phones = tier.intervals.size();
+          if (tier.name == "words") {
+            for (const auto &itv : tier.intervals) {
+              if (!itv.text.empty()) ++num_words;
+            }
+          }
+        }
+        os << "ForcedAlignmentResult(duration=" << self.duration
+           << " s, phones=" << num_phones << ", words=" << num_words << ")";
+        return os.str();
+      });
 }
 
 static void PybindForcedAlignmentOptions(py::module *m) {
