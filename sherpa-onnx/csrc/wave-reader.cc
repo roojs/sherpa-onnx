@@ -63,6 +63,47 @@ because sox uses WAVE_FORMAT_EXTENSIBLE, which is not easy to support
 in sherpa-onnx.
  */
 
+// Read num_bytes of interleaved samples of type T from is and de-interleave
+// them into ans, which must already contain num_channels vectors.
+// Trailing bytes that do not form a whole sample are ignored.
+// Return false if reading fails or the data does not contain a whole number
+// of frames.
+template <typename T, typename Convert>
+bool ReadInterleavedSamples(std::istream &is, int32_t num_bytes,
+                            int32_t num_channels, Convert convert,
+                            std::vector<std::vector<float>> *ans) {
+  std::vector<T> samples(static_cast<size_t>(num_bytes) / sizeof(T));
+
+  is.read(reinterpret_cast<char *>(samples.data()),
+          samples.size() * sizeof(T));
+  if (!is) {
+    SHERPA_ONNX_LOGE("Failed to read %d bytes", num_bytes);
+    return false;
+  }
+
+  if (samples.size() % static_cast<size_t>(num_channels) != 0) {
+    SHERPA_ONNX_LOGE(
+        "Number of samples %zu is not a multiple of number of channels %d",
+        samples.size(), num_channels);
+    return false;
+  }
+
+  size_t num_frames = samples.size() / num_channels;
+  for (auto &v : *ans) {
+    v.resize(num_frames);
+  }
+
+  // samples are interleaved
+  for (size_t f = 0; f != num_frames; ++f) {
+    const T *frame = samples.data() + f * num_channels;
+    for (int32_t c = 0; c != num_channels; ++c) {
+      (*ans)[c][f] = convert(frame[c]);
+    }
+  }
+
+  return true;
+}
+
 // Read a wave file of mono-channel.
 // Return its samples normalized to the range [-1, 1).
 std::vector<std::vector<float>> ReadWaveImpl(std::istream &is,
@@ -221,118 +262,53 @@ std::vector<std::vector<float>> ReadWaveImpl(std::istream &is,
     return {};
   }
 
+  if (header.subchunk2_size < 0) {
+    SHERPA_ONNX_LOGE("Invalid data chunk size: %d", header.subchunk2_size);
+    *is_ok = false;
+    return {};
+  }
+
   *sampling_rate = header.sample_rate;
 
   std::vector<std::vector<float>> ans(header.num_channels);
 
+  // header.subchunk2_size contains the number of bytes in the data.
+  bool ok = false;
   if (header.bits_per_sample == 16 && header.audio_format == 1) {
-    // header.subchunk2_size contains the number of bytes in the data.
-    // As we assume each sample contains two bytes, so it is divided by 2 here
-    std::vector<int16_t> samples(header.subchunk2_size / 2);
-
-    is.read(reinterpret_cast<char *>(samples.data()),
-            samples.size() * sizeof(int16_t));
-    if (!is) {
-      SHERPA_ONNX_LOGE("Failed to read %d bytes", header.subchunk2_size);
-      *is_ok = false;
-      return {};
-    }
-
-    for (auto &v : ans) {
-      v.resize(samples.size() / header.num_channels);
-    }
-
-    // samples are interleaved
-    for (int32_t i = 0, k = 0; i < static_cast<int32_t>(samples.size());
-         i += header.num_channels, ++k) {
-      for (int32_t c = 0; c != header.num_channels; ++c) {
-        ans[c][k] = samples[i + c] / 32768.;
-      }
-    }
+    ok = ReadInterleavedSamples<int16_t>(
+        is, header.subchunk2_size, header.num_channels,
+        [](int16_t s) -> float { return s / 32768.; }, &ans);
   } else if (header.bits_per_sample == 8 && header.audio_format == 1) {
-    // number of samples == number of bytes for 8-bit encoded samples
-    //
     // For 8-bit encoded samples, they are unsigned!
-    std::vector<uint8_t> samples(header.subchunk2_size);
-
-    is.read(reinterpret_cast<char *>(samples.data()), header.subchunk2_size);
-    if (!is) {
-      SHERPA_ONNX_LOGE("Failed to read %d bytes", header.subchunk2_size);
-      *is_ok = false;
-      return {};
-    }
-
-    for (auto &v : ans) {
-      v.resize(samples.size() / header.num_channels);
-    }
-
-    // samples are interleaved
-    for (int32_t i = 0, k = 0; i < static_cast<int32_t>(samples.size());
-         i += header.num_channels, ++k) {
-      for (int32_t c = 0; c != header.num_channels; ++c) {
-        // Note(fangjun): We want to normalize each sample into the range [-1,
-        // 1] Since each original sample is in the range [0, 256], dividing them
-        // by 128 converts them to the range [0, 2]; so after subtracting 1, we
-        // get the range [-1, 1]
-        //
-        ans[c][k] = samples[i + c] / 128. - 1;
-      }
-    }
+    //
+    // Note(fangjun): We want to normalize each sample into the range [-1,
+    // 1] Since each original sample is in the range [0, 256], dividing them
+    // by 128 converts them to the range [0, 2]; so after subtracting 1, we
+    // get the range [-1, 1]
+    ok = ReadInterleavedSamples<uint8_t>(
+        is, header.subchunk2_size, header.num_channels,
+        [](uint8_t s) -> float { return s / 128. - 1; }, &ans);
   } else if (header.bits_per_sample == 32 && header.audio_format == 1) {
     // 32 here is for int32
-    //
-    // header.subchunk2_size contains the number of bytes in the data.
-    // As we assume each sample contains 4 bytes, so it is divided by 4 here
-    std::vector<int32_t> samples(header.subchunk2_size / 4);
-
-    is.read(reinterpret_cast<char *>(samples.data()), header.subchunk2_size);
-    if (!is) {
-      SHERPA_ONNX_LOGE("Failed to read %d bytes", header.subchunk2_size);
-      *is_ok = false;
-      return {};
-    }
-
-    for (auto &v : ans) {
-      v.resize(samples.size() / header.num_channels);
-    }
-
-    // samples are interleaved
-    for (int32_t i = 0, k = 0; i < static_cast<int32_t>(samples.size());
-         i += header.num_channels, ++k) {
-      for (int32_t c = 0; c != header.num_channels; ++c) {
-        ans[c][k] = static_cast<float>(samples[i + c]) / (1 << 31);
-      }
-    }
+    ok = ReadInterleavedSamples<int32_t>(
+        is, header.subchunk2_size, header.num_channels,
+        [](int32_t s) -> float { return static_cast<float>(s) / (1 << 31); },
+        &ans);
   } else if (header.bits_per_sample == 32 && header.audio_format == 3) {
     // 32 here is for float32
-    //
-    // header.subchunk2_size contains the number of bytes in the data.
-    // As we assume each sample contains 4 bytes, so it is divided by 4 here
-    std::vector<float> samples(header.subchunk2_size / 4);
-
-    is.read(reinterpret_cast<char *>(samples.data()), header.subchunk2_size);
-    if (!is) {
-      SHERPA_ONNX_LOGE("Failed to read %d bytes", header.subchunk2_size);
-      *is_ok = false;
-      return {};
-    }
-
-    for (auto &v : ans) {
-      v.resize(samples.size() / header.num_channels);
-    }
-
-    // samples are interleaved
-    for (int32_t i = 0, k = 0; i < static_cast<int32_t>(samples.size());
-         i += header.num_channels, ++k) {
-      for (int32_t c = 0; c != header.num_channels; ++c) {
-        ans[c][k] = samples[i + c];
-      }
-    }
+    ok = ReadInterleavedSamples<float>(is, header.subchunk2_size,
+                                       header.num_channels,
+                                       [](float s) { return s; }, &ans);
   } else {
     SHERPA_ONNX_LOGE(
         "Unsupported %d bits per sample and audio format: %d. Supported values "
         "are: 8, 16, 32.",
         header.bits_per_sample, header.audio_format);
+    *is_ok = false;
+    return {};
+  }
+
+  if (!ok) {
     *is_ok = false;
     return {};
   }
