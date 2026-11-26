@@ -111,9 +111,15 @@ public class WaveReader
     // now read samples
     // _header.SubChunk2Size contains number of bytes in total.
     // we assume each sample is of type int16
-    var buffer = reader.ReadBytes(_header.SubChunk2Size);
-    var samples_int16 = new short[_header.SubChunk2Size / 2];
-    Buffer.BlockCopy(buffer, 0, samples_int16, 0, buffer.Length);
+    long dataSize = unchecked((uint)_header.SubChunk2Size);
+    if (dataSize > stream.Length - stream.Position || dataSize > int.MaxValue)
+    {
+      throw new ApplicationException($"Invalid data chunk size {dataSize} in {fileName}");
+    }
+
+    var buffer = reader.ReadBytes((int)dataSize);
+    var samples_int16 = new short[buffer.Length / 2];
+    Buffer.BlockCopy(buffer, 0, samples_int16, 0, samples_int16.Length * sizeof(short));
 
     _samples = new float[samples_int16.Length];
 
@@ -141,9 +147,17 @@ public class WaveReader
     var subChunk2ID = _header.SubChunk2ID;
     var subChunk2Size = _header.SubChunk2Size;
 
-    while (bs.Position != bs.Length && subChunk2ID != 0x61746164)
+    while (subChunk2ID != 0x61746164)
     {
-      bs.Seek(subChunk2Size, SeekOrigin.Current);
+      // Chunk sizes are unsigned, so each skip moves forward past at least
+      // the 8-byte chunk header.
+      long next = bs.Position + unchecked((uint)subChunk2Size);
+      if (next + 8 > bs.Length)
+      {
+        throw new ApplicationException("No data chunk found in the wave file");
+      }
+
+      bs.Seek(next, SeekOrigin.Begin);
       subChunk2ID = reader.ReadInt32();
       subChunk2Size = reader.ReadInt32();
     }
