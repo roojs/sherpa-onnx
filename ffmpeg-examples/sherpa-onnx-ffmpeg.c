@@ -213,41 +213,60 @@ end:
   return ret;
 }
 
+static void sherpa_accept_samples(const float *samples, int n,
+                                  const SherpaOnnxOnlineRecognizer *recognizer,
+                                  const SherpaOnnxOnlineStream *stream,
+                                  const SherpaOnnxDisplay *display,
+                                  int32_t *segment_id) {
+  SherpaOnnxOnlineStreamAcceptWaveform(stream, 16000, samples, n);
+  while (SherpaOnnxIsOnlineStreamReady(recognizer, stream)) {
+    SherpaOnnxDecodeOnlineStream(recognizer, stream);
+  }
+
+  const SherpaOnnxOnlineRecognizerResult *r =
+      SherpaOnnxGetOnlineStreamResult(recognizer, stream);
+  if (strlen(r->text)) {
+    SherpaOnnxPrint(display, *segment_id, r->text);
+  }
+
+  if (SherpaOnnxOnlineStreamIsEndpoint(recognizer, stream)) {
+    if (strlen(r->text)) {
+      ++*segment_id;
+    }
+    SherpaOnnxOnlineStreamReset(recognizer, stream);
+  }
+
+  SherpaOnnxDestroyOnlineRecognizerResult(r);
+}
+
 static void sherpa_decode_frame(const AVFrame *frame,
                                 const SherpaOnnxOnlineRecognizer *recognizer,
                                 const SherpaOnnxOnlineStream *stream,
                                 const SherpaOnnxDisplay *display,
                                 int32_t *segment_id) {
-#define N 3200  // 100s. Sample rate is fixed to 16 kHz
+#define N 3200  // 0.2s. Sample rate is fixed to 16 kHz
   static float samples[N];
   static int nb_samples = 0;
-  const int16_t *p = (int16_t *)frame->data[0];
+  const int16_t *p = (const int16_t *)frame->data[0];
+  int remaining = frame->nb_samples;
 
-  if (frame->nb_samples + nb_samples > N) {
-    SherpaOnnxOnlineStreamAcceptWaveform(stream, 16000, samples, nb_samples);
-    while (SherpaOnnxIsOnlineStreamReady(recognizer, stream)) {
-      SherpaOnnxDecodeOnlineStream(recognizer, stream);
+  // Decoded frames can be larger than N, so copy at most the free space in
+  // samples[] and flush whenever it is full.
+  while (remaining > 0) {
+    int room = N - nb_samples;
+    int take = remaining < room ? remaining : room;
+
+    for (int i = 0; i < take; i++) {
+      samples[nb_samples++] = p[i] / 32768.;
     }
+    p += take;
+    remaining -= take;
 
-    const SherpaOnnxOnlineRecognizerResult *r =
-        SherpaOnnxGetOnlineStreamResult(recognizer, stream);
-    if (strlen(r->text)) {
-      SherpaOnnxPrint(display, *segment_id, r->text);
+    if (nb_samples == N) {
+      sherpa_accept_samples(samples, nb_samples, recognizer, stream, display,
+                            segment_id);
+      nb_samples = 0;
     }
-
-    if (SherpaOnnxOnlineStreamIsEndpoint(recognizer, stream)) {
-      if (strlen(r->text)) {
-        ++*segment_id;
-      }
-      SherpaOnnxOnlineStreamReset(recognizer, stream);
-    }
-
-    SherpaOnnxDestroyOnlineRecognizerResult(r);
-    nb_samples = 0;
-  }
-
-  for (int i = 0; i < frame->nb_samples; i++) {
-    samples[nb_samples++] = p[i] / 32768.;
   }
 }
 
