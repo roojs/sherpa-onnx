@@ -36,6 +36,8 @@ namespace sherpa_onnx {
  * The byte stream can be broken into arbitrary number of messages.
  * We require that the first message has to be at least 8 bytes so that
  * we can get `sample_rate` and `expected_byte_size` from the first message.
+ * `expected_byte_size` must be a positive multiple of 4. The connection is
+ * closed if the client sends more bytes than `expected_byte_size`.
  */
 struct ConnectionData {
   // Sample rate of the audio samples the client
