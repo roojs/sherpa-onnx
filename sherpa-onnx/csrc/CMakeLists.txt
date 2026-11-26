@@ -792,6 +792,34 @@ if(SHERPA_ONNX_ENABLE_WEBSOCKET AND SHERPA_ONNX_ENABLE_BINARY)
   )
   target_link_libraries(sherpa-onnx-offline-websocket-server sherpa-onnx-core)
 
+  # POSIX-only: the driver forks one child per case and uses AddressSanitizer.
+  # It does not link sherpa-onnx-core. The recognizer is not on the path from
+  # a client frame to the buffer copy. AddressSanitizer is required so a copy
+  # past the declared size fails the test instead of depending on the heap.
+  if(UNIX)
+    add_executable(offline-websocket-declared-size-test
+      offline-websocket-declared-size-test.cc
+      offline-websocket-declared-size-stubs.cc
+      offline-websocket-server-impl.cc
+    )
+    target_compile_options(offline-websocket-declared-size-test PRIVATE
+      -O1
+      -g
+      -fno-omit-frame-pointer
+      -fsanitize=address
+      -Wno-deprecated-declarations
+    )
+    target_link_options(offline-websocket-declared-size-test PRIVATE
+      -fsanitize=address
+    )
+    target_link_libraries(offline-websocket-declared-size-test pthread)
+    if(SHERPA_ONNX_ENABLE_TESTS)
+      add_test(NAME offline-websocket-declared-size-test
+        COMMAND $<TARGET_FILE:offline-websocket-declared-size-test>
+      )
+    endif()
+  endif()
+
   if(UNIX)
     target_compile_options(sherpa-onnx-offline-websocket-server PRIVATE -Wno-deprecated-declarations)
   endif()
