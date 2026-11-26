@@ -5,8 +5,10 @@
 #include "sherpa-onnx/csrc/offline-websocket-server-impl.h"
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,6 +17,10 @@
 #include "sherpa-onnx/csrc/macros.h"
 
 namespace sherpa_onnx {
+
+// Upper bound for the client-declared sample rate. Together with
+// --max-utterance-length it bounds the buffer a client can request.
+static constexpr int32_t kMaxSampleRate = 192000;
 
 void OfflineWebsocketDecoderConfig::Register(ParseOptions *po) {
   recognizer_config.Register(po);
@@ -183,7 +189,11 @@ void OfflineWebsocketServer::OnClose(connection_hdl hdl) {
 void OfflineWebsocketServer::OnMessage(connection_hdl hdl,
                                        server::message_ptr msg) {
   std::unique_lock<std::mutex> lock(mutex_);
-  auto connection_data = connections_.find(hdl)->second;
+  auto it = connections_.find(hdl);
+  if (it == connections_.end()) {
+    return;
+  }
+  auto connection_data = it->second;
   lock.unlock();
   const std::string &payload = msg->get_payload();
 
@@ -200,45 +210,88 @@ void OfflineWebsocketServer::OnMessage(connection_hdl hdl,
       break;
 
     case websocketpp::frame::opcode::binary: {
-      auto p = reinterpret_cast<const int8_t *>(payload.data());
+      auto reject = [this, hdl, &connection_data](
+                        websocketpp::close::status::value code,
+                        const std::string &reason) {
+        connection_data->Clear();
+        Close(hdl, code, reason);
+      };
 
       if (connection_data->expected_byte_size == 0) {
         if (payload.size() < 8) {
-          Close(hdl, websocketpp::close::status::normal,
-                "Payload is too short");
+          reject(websocketpp::close::status::normal, "Payload is too short");
           break;
         }
 
-        connection_data->sample_rate = *reinterpret_cast<const int32_t *>(p);
+        int32_t sample_rate = 0;
+        int32_t expected_byte_size = 0;
+        std::memcpy(&sample_rate, payload.data(), sizeof(int32_t));
+        std::memcpy(&expected_byte_size, payload.data() + 4, sizeof(int32_t));
 
-        connection_data->expected_byte_size =
-            *reinterpret_cast<const int32_t *>(p + 4);
+        if (sample_rate <= 0 || sample_rate > kMaxSampleRate) {
+          std::ostringstream os;
+          os << "Invalid sample rate: " << sample_rate
+             << ". Expected a value in the range [1, " << kMaxSampleRate << "]";
+          reject(websocketpp::close::status::invalid_payload, os.str());
+          break;
+        }
 
-        int32_t max_byte_size_ = decoder_.GetConfig().max_utterance_length *
-                                 connection_data->sample_rate * sizeof(float);
-        if (connection_data->expected_byte_size > max_byte_size_) {
-          float num_samples =
-              connection_data->expected_byte_size / sizeof(float);
+        if (expected_byte_size <= 0 ||
+            expected_byte_size % static_cast<int32_t>(sizeof(float)) != 0) {
+          std::ostringstream os;
+          os << "Invalid number of bytes: " << expected_byte_size
+             << ". Expected a positive multiple of " << sizeof(float);
+          reject(websocketpp::close::status::invalid_payload, os.str());
+          break;
+        }
 
-          float duration = num_samples / connection_data->sample_rate;
+        double max_byte_size =
+            static_cast<double>(decoder_.GetConfig().max_utterance_length) *
+            sample_rate * sizeof(float);
+        if (expected_byte_size > max_byte_size) {
+          double num_samples = expected_byte_size / sizeof(float);
+
+          double duration = num_samples / sample_rate;
 
           std::ostringstream os;
           os << "Max utterance length is configured to "
              << decoder_.GetConfig().max_utterance_length
              << " seconds, received length is " << duration << " seconds. "
              << "Payload is too large!";
-          Close(hdl, websocketpp::close::status::message_too_big, os.str());
+          reject(websocketpp::close::status::message_too_big, os.str());
           break;
         }
 
-        connection_data->data.resize(connection_data->expected_byte_size);
+        size_t num_bytes = payload.size() - 8;
+        if (num_bytes > static_cast<size_t>(expected_byte_size)) {
+          std::ostringstream os;
+          os << "Received " << num_bytes << " bytes, but only "
+             << expected_byte_size << " bytes are expected";
+          reject(websocketpp::close::status::invalid_payload, os.str());
+          break;
+        }
+
+        connection_data->sample_rate = sample_rate;
+        connection_data->expected_byte_size = expected_byte_size;
+        connection_data->data.resize(expected_byte_size);
         std::copy(payload.begin() + 8, payload.end(),
-                  connection_data->data.data());
-        connection_data->cur = payload.size() - 8;
+                  connection_data->data.begin());
+        connection_data->cur = static_cast<int32_t>(num_bytes);
       } else {
+        size_t remaining =
+            static_cast<size_t>(connection_data->expected_byte_size) -
+            static_cast<size_t>(connection_data->cur);
+        if (payload.size() > remaining) {
+          std::ostringstream os;
+          os << "Received " << payload.size() << " bytes, but only "
+             << remaining << " more bytes are expected";
+          reject(websocketpp::close::status::invalid_payload, os.str());
+          break;
+        }
+
         std::copy(payload.begin(), payload.end(),
-                  connection_data->data.data() + connection_data->cur);
-        connection_data->cur += payload.size();
+                  connection_data->data.begin() + connection_data->cur);
+        connection_data->cur += static_cast<int32_t>(payload.size());
       }
 
       if (connection_data->expected_byte_size == connection_data->cur) {
